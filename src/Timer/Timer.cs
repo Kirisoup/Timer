@@ -20,17 +20,12 @@ public sealed class Timer : IDisposable
 		void Update() => timer.UnfixedCycle();
 	}
 
-	private Timer(MonoBehaviour mb, 
-		TimerCycleCallback<FixedTime>? fcCallback, TimerCycleCallback<UnfixedTime>? ucCallback) {
-		_mb = mb;
-		_fcCallback = fcCallback;
-		_ucCallback = ucCallback;
-	}
+	private Timer(MonoBehaviour mb) => _mb = mb;
 
 	private readonly MonoBehaviour _mb;
 
-	private readonly TimerCycleCallback<FixedTime>? _fcCallback;
-	private readonly TimerCycleCallback<UnfixedTime>? _ucCallback;
+	private TimerCycleCallback<FixedTime>? FixedCycleCallback { get; init; }
+	private TimerCycleCallback<UnfixedTime>? UnfixedCycleCallback { get; init; }
 
 	public CombinedTime StartTime { get; private set; }
 
@@ -43,7 +38,10 @@ public sealed class Timer : IDisposable
 		TimerCycleCallback<FixedTime>? fixedCycleCallback, TimerCycleCallback<UnfixedTime>? unfixedCycleCallback) 
 	{
 		var mb = root.AddComponent<MonoBehaviour>();
-		return mb.timer = new(mb, fixedCycleCallback, unfixedCycleCallback);
+		return mb.timer = new(mb) { 
+			FixedCycleCallback = fixedCycleCallback,
+			UnfixedCycleCallback = unfixedCycleCallback
+		};
 	}
 
 	private void FixedCycle() {
@@ -52,7 +50,7 @@ public sealed class Timer : IDisposable
 		FixedSpan = new(
 			FixedSpan.Cycles + 1, 
 			FixedSpan.Seconds + Engine.Time.fixedDeltaTime);
-		_fcCallback?.Invoke(this, sysTime, FixedTime.Now());
+		FixedCycleCallback?.Invoke(this, sysTime, FixedTime.Now());
 	}
 
 	private void UnfixedCycle() {
@@ -61,7 +59,7 @@ public sealed class Timer : IDisposable
 		UnfixedSpan = new(
 			UnfixedSpan.Cycles + 1, 
 			UnfixedSpan.Seconds + Engine.Time.deltaTime);
-		_ucCallback?.Invoke(this, sysTime, UnfixedTime.Now());
+		UnfixedCycleCallback?.Invoke(this, sysTime, UnfixedTime.Now());
 	}
 
 	public bool StartTimer(out CombinedTime timeStamp) {
