@@ -35,10 +35,10 @@ public sealed class Timer : IDisposable
 	public TimerState State { get; private set; }
 
 	public static Timer New(GameObject root,
-		TimerCycleCallback<FixedTime>? fixedCycleCallback, TimerCycleCallback<UnfixedTime>? unfixedCycleCallback) 
+		TimerCycleCallback<FixedTime>? fixedCycleCallback, TimerCycleCallback<UnfixedTime>? unfixedCycleCallback)
 	{
 		var mb = root.AddComponent<MonoBehaviour>();
-		return mb.timer = new(mb) { 
+		return mb.timer = new(mb) {
 			FixedCycleCallback = fixedCycleCallback,
 			UnfixedCycleCallback = unfixedCycleCallback
 		};
@@ -48,7 +48,7 @@ public sealed class Timer : IDisposable
 		var sysTime = SystemTime.Now();
 		if (State is not TimerState.Ticking) return;
 		FixedSpan = new(
-			FixedSpan.Cycles + 1, 
+			FixedSpan.Cycles + 1,
 			FixedSpan.Seconds + Engine.Time.fixedDeltaTime);
 		FixedCycleCallback?.Invoke(this, sysTime, FixedTime.Now());
 	}
@@ -57,7 +57,7 @@ public sealed class Timer : IDisposable
 		var sysTime = SystemTime.Now();
 		if (State is not TimerState.Ticking) return;
 		UnfixedSpan = new(
-			UnfixedSpan.Cycles + 1, 
+			UnfixedSpan.Cycles + 1,
 			UnfixedSpan.Seconds + Engine.Time.deltaTime);
 		UnfixedCycleCallback?.Invoke(this, sysTime, UnfixedTime.Now());
 	}
@@ -69,7 +69,7 @@ public sealed class Timer : IDisposable
 		State = TimerState.Ticking;
 		StartTime = new(sysTime, FixedTime.Now(), UnfixedTime.Now());
 		timeStamp = StartTime;
-		return true; 
+		return true;
 	}
 
 	public bool Pause(out CombinedTime timeStamp) {
@@ -79,13 +79,13 @@ public sealed class Timer : IDisposable
 		State = TimerState.Paused;
 		timeStamp = new(sysTime, FixedTime.Now(), UnfixedTime.Now());
 		return true;
-	} 
+	}
 
 	public bool Resume(out CombinedTime timeStamp) {
 		var sysTime = SystemTime.Now();
 		timeStamp = default;
 		if (State is not TimerState.Paused) return false;
-		State = TimerState.Paused;
+		State = TimerState.Ticking;
 		timeStamp = new(sysTime, FixedTime.Now(), UnfixedTime.Now());
 		return true;
 	}
@@ -93,7 +93,7 @@ public sealed class Timer : IDisposable
 	public bool Finish(out CombinedTime timeStamp) {
 		var sysTime = SystemTime.Now();
 		timeStamp = default;
-		if (State is not TimerState.Ticking) return false;
+		if (State is not (TimerState.Ticking or TimerState.Paused)) return false;
 		State = TimerState.Finished;
 		timeStamp = new(sysTime, FixedTime.Now(), UnfixedTime.Now());
 		return true;
