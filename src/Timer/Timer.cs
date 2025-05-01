@@ -5,104 +5,122 @@ using Timer.Timing;
 
 namespace Timer;
 
-public sealed class Timer : IDisposable
+public static class Timer
 {
-	public enum TimerState : byte { Waiting, Ticking, Paused, Finished, Aborted }
-
-	public delegate void TimerCycleCallback<EngineTime>(Timer source, SystemTime sysTime, EngineTime engineTime)
+	public delegate void CycleCallback<EngineTime>(ITimer source, SystemTime sysTime, EngineTime engineTime)
 		where EngineTime: IEngineTime;
 
-	private sealed class MonoBehaviour : Engine.MonoBehaviour
-	{
-		public Timer timer = null!;
-
-		void FixedUpate() => timer.FixedCycle();
-		void Update() => timer.UnfixedCycle();
-	}
-
-	private Timer(MonoBehaviour mb) => _mb = mb;
-
-	private readonly MonoBehaviour _mb;
-
-	private TimerCycleCallback<FixedTime>? FixedCycleCallback { get; init; }
-	private TimerCycleCallback<UnfixedTime>? UnfixedCycleCallback { get; init; }
-
-	public CombinedTime StartTime { get; private set; }
-
-	public FixedSpan FixedSpan { get; private set; }
-	public UnfixedSpan UnfixedSpan { get; private set; }
-
-	public TimerState State { get; private set; }
-
-	public static Timer New(GameObject root,
-		TimerCycleCallback<FixedTime>? fixedCycleCallback, TimerCycleCallback<UnfixedTime>? unfixedCycleCallback)
-	{
+	public static TickingTimer Start(
+		GameObject root,
+		CycleCallback<FixedTime>? fixedCycleCallback,
+		CycleCallback<UnfixedTime>? unfixedCycleCallback
+	) {
 		var mb = root.AddComponent<MonoBehaviour>();
-		return mb.timer = new(mb) {
-			FixedCycleCallback = fixedCycleCallback,
-			UnfixedCycleCallback = unfixedCycleCallback
-		};
+		mb._timer = new TimerInternal();
+		mb._fixedCallback = fixedCycleCallback;
+		mb._unfixedCallback = unfixedCycleCallback;
+		return new(mb);
 	}
 
-	private void FixedCycle() {
-		var sysTime = SystemTime.Now();
-		if (State is not TimerState.Ticking) return;
-		FixedSpan = new(
-			FixedSpan.Cycles + 1,
-			FixedSpan.Seconds + Engine.Time.fixedDeltaTime);
-		FixedCycleCallback?.Invoke(this, sysTime, FixedTime.Now());
+	internal sealed class MonoBehaviour : Engine.MonoBehaviour
+	{
+		public TimerInternal _timer = default!;
+		public CycleCallback<FixedTime>? _fixedCallback = null;
+		public CycleCallback<UnfixedTime>? _unfixedCallback = null;
+
+		void FixedUpate() => _fixedCallback?.Invoke(_timer, SystemTime.Now(), FixedTime.Now());
+		void Update() => _unfixedCallback?.Invoke(_timer, SystemTime.Now(), UnfixedTime.Now());
 	}
 
-	private void UnfixedCycle() {
-		var sysTime = SystemTime.Now();
-		if (State is not TimerState.Ticking) return;
-		UnfixedSpan = new(
-			UnfixedSpan.Cycles + 1,
-			UnfixedSpan.Seconds + Engine.Time.deltaTime);
-		UnfixedCycleCallback?.Invoke(this, sysTime, UnfixedTime.Now());
+	internal struct TimerInternal() : ITimer
+	{
+		public readonly CombinedTime _startTime = CombinedTime.Now();
+		public FixedSpan _fixedSpan = new();
+		public UnfixedSpan _unfixedSpan = new();
+
+		readonly CombinedTime ITimer.StartTime => _startTime;
+		readonly FixedSpan ITimer.FixedSpan => _fixedSpan;
+		readonly UnfixedSpan ITimer.UnfixedSpan => _unfixedSpan;
 	}
 
-	public bool StartTimer(out CombinedTime timeStamp) {
-		var sysTime = SystemTime.Now();
-		timeStamp = default;
-		if (State is not TimerState.Waiting) return false;
-		State = TimerState.Ticking;
-		StartTime = new(sysTime, FixedTime.Now(), UnfixedTime.Now());
-		timeStamp = StartTime;
-		return true;
+	public sealed class DisposedException : InvalidOperationException
+	{
+		internal DisposedException() : base("timer is finished or aborted") {}
+	}
+} 
+
+public interface ITimer
+{
+	CombinedTime StartTime { get; }
+	FixedSpan FixedSpan { get; }
+	UnfixedSpan UnfixedSpan { get; }
+}
+
+public readonly struct TickingTimer : ITimer
+{
+	internal TickingTimer(Timer.MonoBehaviour mb) {
+		_mb = mb;
+		mb.enabled = true;
 	}
 
-	public bool Pause(out CombinedTime timeStamp) {
-		var sysTime = SystemTime.Now();
-		timeStamp = default;
-		if (State is not TimerState.Ticking) return false;
-		State = TimerState.Paused;
-		timeStamp = new(sysTime, FixedTime.Now(), UnfixedTime.Now());
-		return true;
+	private readonly Timer.MonoBehaviour _mb;
+
+	public CombinedTime StartTime => _mb._timer._startTime;
+
+	public FixedSpan FixedSpan => _mb._timer._fixedSpan;
+	public UnfixedSpan UnfixedSpan => _mb._timer._unfixedSpan;
+
+	public PausedTimer Pause() => new(CombinedTime.Now(), 
+		_mb ?? throw new Timer.DisposedException());
+	
+	public FinishedTimer Finish() => new(CombinedTime.Now(), 
+		_mb ?? throw new Timer.DisposedException());
+
+	public void Abort() => Engine.Object.Destroy(_mb);
+}
+
+public readonly struct PausedTimer : ITimer
+{
+	internal PausedTimer(CombinedTime pauseTime, Timer.MonoBehaviour mb) {
+		_mb = mb;
+		_mb.enabled = false;
+		PauseTime = pauseTime;
 	}
 
-	public bool Resume(out CombinedTime timeStamp) {
-		var sysTime = SystemTime.Now();
-		timeStamp = default;
-		if (State is not TimerState.Paused) return false;
-		State = TimerState.Ticking;
-		timeStamp = new(sysTime, FixedTime.Now(), UnfixedTime.Now());
-		return true;
+	private readonly Timer.MonoBehaviour _mb;
+
+	public CombinedTime StartTime => _mb._timer._startTime;
+	public CombinedTime PauseTime { get; }
+
+	public FixedSpan FixedSpan => _mb._timer._fixedSpan;
+	public UnfixedSpan UnfixedSpan => _mb._timer._unfixedSpan;
+
+	public readonly record struct PauseSpan(CombinedTime PauseTime, CombinedTime ResumeTime);
+
+	public (TickingTimer timer, PauseSpan span) Resume() => (
+		new TickingTimer(_mb ?? throw new Timer.DisposedException()),
+		new PauseSpan(PauseTime, CombinedTime.Now()));
+
+	public FinishedTimer Finish() => new(CombinedTime.Now(), 
+		_mb ?? throw new Timer.DisposedException());
+
+	public void Abort() => Engine.Object.Destroy(_mb);
+}
+
+public readonly record struct FinishedTimer : ITimer
+{
+	internal FinishedTimer(CombinedTime finishTime, Timer.MonoBehaviour mb) {
+		if (mb is null) throw new Timer.DisposedException();
+		StartTime = mb._timer._startTime;
+		FixedSpan = mb._timer._fixedSpan;
+		UnfixedSpan = mb._timer._unfixedSpan;
+		FinishTime = finishTime;
+		Engine.Object.Destroy(mb);
 	}
 
-	public bool Finish(out CombinedTime timeStamp) {
-		var sysTime = SystemTime.Now();
-		timeStamp = default;
-		if (State is not (TimerState.Ticking or TimerState.Paused)) return false;
-		State = TimerState.Finished;
-		timeStamp = new(sysTime, FixedTime.Now(), UnfixedTime.Now());
-		return true;
-	}
+	public CombinedTime StartTime { get; }
+	public FixedSpan FixedSpan { get; }
+	public UnfixedSpan UnfixedSpan { get; }
 
-	public void Abort() {
-		State = TimerState.Aborted;
-		Engine.Object.Destroy(_mb);
-	}
-
-	void IDisposable.Dispose() => Abort();
+	public CombinedTime FinishTime { get; }
 }

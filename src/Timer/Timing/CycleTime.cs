@@ -21,7 +21,11 @@ public readonly record struct UnfixedTime(float Second) : IEngineTime
 	public static UnfixedTime Now() => new(Engine.Time.time);
 }
 
-public readonly record struct CombinedTime(SystemTime System, FixedTime Fixed, UnfixedTime Unfixed);
+public readonly record struct CombinedTime(
+	SystemTime System, FixedTime Fixed, UnfixedTime Unfixed) 
+{
+	public static CombinedTime Now() => new(SystemTime.Now(), FixedTime.Now(), UnfixedTime.Now());
+}
 
 public interface IEngineSpan
 {
