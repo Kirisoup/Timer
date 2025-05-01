@@ -28,8 +28,19 @@ public static class Timer
 		public CycleCallback<FixedTime>? _fixedCallback = null;
 		public CycleCallback<UnfixedTime>? _unfixedCallback = null;
 
-		void FixedUpate() => _fixedCallback?.Invoke(_timer, SystemTime.Now(), FixedTime.Now());
-		void Update() => _unfixedCallback?.Invoke(_timer, SystemTime.Now(), UnfixedTime.Now());
+		void FixedUpate() {
+			var sysTime = SystemTime.Now();
+			var (cycles, seconds) = _timer._fixedSpan;
+			_timer._fixedSpan = new(cycles + 1, seconds + Engine.Time.fixedDeltaTime);
+			_fixedCallback?.Invoke(_timer, sysTime, FixedTime.Now());
+		}
+
+		void Update() {
+			var sysTime = SystemTime.Now();
+			var (cycles, seconds) = _timer._unfixedSpan;
+			_timer._unfixedSpan = new(cycles + 1, seconds + Engine.Time.deltaTime);
+			_unfixedCallback?.Invoke(_timer, SystemTime.Now(), UnfixedTime.Now());
+		}
 	}
 
 	internal struct TimerInternal() : ITimer
@@ -97,9 +108,12 @@ public readonly struct PausedTimer : ITimer
 
 	public readonly record struct PauseSpan(CombinedTime PauseTime, CombinedTime ResumeTime);
 
-	public (TickingTimer timer, PauseSpan span) Resume() => (
-		new TickingTimer(_mb ?? throw new Timer.DisposedException()),
-		new PauseSpan(PauseTime, CombinedTime.Now()));
+	public (TickingTimer timer, PauseSpan span) Resume() {
+		var resumeTime = CombinedTime.Now();
+		return (
+			new TickingTimer(_mb ?? throw new Timer.DisposedException()),
+			new PauseSpan(PauseTime, resumeTime));
+	}
 
 	public FinishedTimer Finish() => new(CombinedTime.Now(), 
 		_mb ?? throw new Timer.DisposedException());
